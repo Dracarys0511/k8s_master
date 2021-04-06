@@ -29,7 +29,7 @@ galaxy_info:
   #
   platforms:
   - name: RHEL, CentOS
-      versions:
+    versions:
       - all
   #   - 25
   # - name: SomePlatform
