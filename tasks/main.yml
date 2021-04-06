@@ -1,0 +1,85 @@
+---
+# tasks file for k8s_master
+- name: "Configuring the yum repository"
+  yum_repository:
+          name: kubernetes
+          description: kubernetes.repo
+          baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-\$basearch         
+          enabled: yes
+          gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+          exclude: kubelet kubeadm kubectl
+
+- name: "Installing the required Softwares"
+  yum: 
+      name: "{{ item }}"
+      state: present
+      disable_excludes: kubernetes
+  loop: 
+       - docker
+       - iproute-tc
+       - kubeadm
+
+- name: Starting Docker and Kubelet services
+  service:
+          name: "{{ item }}"
+          state: started
+          enabled: yes
+  loop:
+       - docker
+       - kubelet
+
+- name: kubeadm image pull
+  command: "kubeadm config images pull"
+
+- name: Changing Docker drivers
+  copy:
+       dest: /etc/docker/daemon.json
+       content: |
+                 {
+                         "exec-opts" : ["native.cgroupdriver=systemd"] 
+                         }
+
+- name: Restarting docker
+  service:
+          name: docker
+          state: restarted
+
+- name: Configuring the kubernetes network
+  copy:
+     src: k8s.conf
+     dest: /etc/sysctl.d
+     
+
+- name: Changing parameters for the kernel
+  command: "sysctl --system"
+
+- name: Initialise the cluster and ignore errors
+  command: "kubeadm init --pod-network-cidr=10.240.0.0/16 --ignore-preflight-errors=NumCPU --ignore-preflight-errors=Mem"
+
+- name: Create .kube directory
+  file:
+      path: $HOME/.kube
+      state: directory
+
+- name: Copy the admin files
+  copy:
+          src: /etc/kubernetes/admin.conf
+          dest: $HOME/.kube/config
+          remote_src: yes  
+
+- name: Change the ownership of the file
+  shell: "chown $(id -u):$(id -g) $HOME/.kube/config"
+
+- name: Apply Flannel
+  shell: "kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml"
+
+- name: Change the permissions
+  shell: "export KUBECONFIG=/etc/kubernetes/admin.conf"
+
+- name: Create and store the join command
+  shell: "kubeadm token create --print-join-command"
+  register: print_command
+
+- debug:
+        var: print_command.stdout_lines
+  register: print_command
